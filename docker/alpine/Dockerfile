@@ -15,10 +15,12 @@ RUN adduser -D -G abuild builder && su builder -c 'abuild-keygen -a -n'
 # This stage builds an APK for libyang
 FROM alpine-builder as alpine-apk-builder-libyang
 RUN mkdir -p /src/libyang
-COPY docker/alpine/libyang/APKBUILD /src/libyang
+COPY docker/alpine/libyang/ /src/libyang/
 RUN chown -R builder /pkgs /src
 RUN source /src/libyang/APKBUILD && apk add $makedepends
 USER builder
+# An archive in docker/alpine/libyang/distfiles is used instead of a download.
+ENV DISTFILES_MIRROR=/src/libyang/distfiles
 RUN cd /src/libyang \
 	&& abuild checksum \
 	&& git init \
