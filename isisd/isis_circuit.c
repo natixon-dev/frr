@@ -39,6 +39,7 @@
 #include "isisd/isis_misc.h"
 #include "isisd/isis_constants.h"
 #include "isisd/isis_adjacency.h"
+#include "isisd/isis_bfd.h"
 #include "isisd/isis_dr.h"
 #include "isisd/isisd.h"
 #include "isisd/isis_csm.h"
@@ -1530,6 +1531,9 @@ void isis_circuit_af_set(struct isis_circuit *circuit, bool ip_router,
 		/* Leaked prefixes depend on the address families in use */
 		lsp_leak_l1_to_l2_check(area);
 	}
+
+	/* The BFD session runs over an address family the circuit uses */
+	isis_bfd_circuit_cmd(circuit);
 }
 
 ferr_r isis_circuit_passive_set(struct isis_circuit *circuit, bool passive)

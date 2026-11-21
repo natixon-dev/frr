@@ -46,6 +46,16 @@ static void bfd_handle_adj_down(struct isis_adjacency *adj)
 	bfd_sess_free(&adj->bfd_session);
 }
 
+static int bfd_adj_session_family(const struct isis_adjacency *adj)
+{
+	int family = AF_UNSPEC;
+
+	if (adj->bfd_session)
+		bfd_sess_addresses(adj->bfd_session, &family, NULL, NULL);
+
+	return family;
+}
+
 static void bfd_handle_adj_up(struct isis_adjacency *adj)
 {
 	struct isis_circuit *circuit = adj->circuit;
@@ -63,22 +73,22 @@ static void bfd_handle_adj_up(struct isis_adjacency *adj)
 		goto out;
 	}
 
-	/* If IS-IS IPv6 is configured wait for IPv6 address to be programmed
-	 * before starting up BFD
+	/*
+	 * If IS-IS IPv6 is configured and the neighbor advertises an IPv6
+	 * address, wait for the local IPv6 address to be programmed before
+	 * starting up BFD. A neighbor that advertises no IPv6 address runs
+	 * IS-IS for IPv4 only: the session then runs over IPv4.
 	 */
-	if (circuit->ipv6_router
-	    && (listcount(circuit->ipv6_link) == 0
-		|| adj->ll_ipv6_count == 0)) {
+	if (circuit->ipv6_router && adj->ll_ipv6_count && listcount(circuit->ipv6_link) == 0) {
 		if (IS_DEBUG_BFD)
-			zlog_debug(
-				"ISIS-BFD: skipping BFD initialization on adjacency with %s because IPv6 is enabled but not ready",
-				isis_adj_name(adj));
+			zlog_debug("ISIS-BFD: skipping BFD initialization on adjacency with %s because IPv6 is enabled but not ready",
+				   isis_adj_name(adj));
 		return;
 	}
 
 	/*
-	 * If IS-IS is enabled for both IPv4 and IPv6 on the circuit, prefer
-	 * creating a BFD session over IPv6.
+	 * If IS-IS is enabled for both IPv4 and IPv6 on the circuit and the
+	 * neighbor, prefer creating a BFD session over IPv6.
 	 */
 	if (circuit->ipv6_router && adj->ll_ipv6_count) {
 		family = AF_INET6;
@@ -106,6 +116,14 @@ static void bfd_handle_adj_up(struct isis_adjacency *adj)
 		src_ip.ipv4 = local_ip->u.prefix4;
 	} else
 		goto out;
+
+	/*
+	 * A session that changes address family is a new session: start it
+	 * afresh, so that the old session's state does not take the new one
+	 * for a session that went down.
+	 */
+	if (adj->bfd_session && bfd_adj_session_family(adj) != family)
+		bfd_handle_adj_down(adj);
 
 	if (adj->bfd_session == NULL)
 		adj->bfd_session = bfd_sess_new(adj_bfd_cb, adj);
@@ -177,7 +195,8 @@ static int bfd_handle_adj_ip_enabled(struct isis_adjacency *adj, int family,
 	if (family != AF_INET6 || global)
 		return 0;
 
-	if (adj->bfd_session)
+	/* An IPv4 session moves to IPv6 once the neighbor speaks IPv6. */
+	if (adj->bfd_session && bfd_adj_session_family(adj) == AF_INET6)
 		return 0;
 
 	if (adj->adj_state != ISIS_ADJ_UP)
